@@ -89,9 +89,10 @@ class TtsManager(context: Context) : TextToSpeech.OnInitListener {
     }
 
     // --- Local TTS ---
-    fun speakLocal(text: String, utteranceId: String, queueMode: Int = TextToSpeech.QUEUE_FLUSH) {
-        if (!isReady || text.isBlank()) return
-        tts?.speak(text, queueMode, null, utteranceId)
+    fun speakLocal(text: String, utteranceId: String, queueMode: Int = TextToSpeech.QUEUE_FLUSH): Boolean {
+        if (!isReady || text.isBlank()) return false
+        val result = tts?.speak(text, queueMode, null, utteranceId) ?: -1
+        return result == TextToSpeech.SUCCESS
     }
 
     // --- Online TTS ---

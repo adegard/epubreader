@@ -15,6 +15,8 @@ import android.text.InputType
 import android.text.SpannableString
 import android.text.Spanned
 import android.text.style.BackgroundColorSpan
+import android.view.GestureDetector
+import android.view.MotionEvent
 import android.view.View
 import android.widget.EditText
 import android.widget.Toast
@@ -72,11 +74,14 @@ class MainActivity : AppCompatActivity() {
 
     private var ttsActive = false
     private var ttsOnline = false
+    private var ttsBusy = false
     private var currentChunkOffsets = IntArray(0)
     private var lastUtteranceId = ""
     private var headerLength = 0
     private var currentSpannable: SpannableString? = null
     private var currentChunks: List<String> = emptyList()
+
+    private lateinit var gestureDetector: GestureDetector
 
     private val openDocumentLauncher =
         registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
@@ -110,8 +115,8 @@ class MainActivity : AppCompatActivity() {
             }
         })
         tts.onSentenceHighlight = { s, e -> runOnUiThread { highlightSentence(s, e) } }
-        tts.onOnlineUtteranceDone = { runOnUiThread { nextBlockForTts() } }
-        tts.onOnlineError = { runOnUiThread { finishReading() } }
+        tts.onOnlineUtteranceDone = { runOnUiThread { ttsBusy = false; nextBlockForTts() } }
+        tts.onOnlineError = { runOnUiThread { ttsBusy = false; finishReading() } }
 
         binding.btnOpenEpub.setOnClickListener { openEpubPicker() }
         binding.btnMenu.setOnClickListener { toggleMenu() }
@@ -128,6 +133,25 @@ class MainActivity : AppCompatActivity() {
         binding.btnBookmarks.setOnClickListener { showBookmarksDialog() }
         binding.btnTheme.setOnClickListener { toggleTheme() }
         binding.btnSettings.setOnClickListener { showSettingsDialog() }
+
+        gestureDetector = GestureDetector(this, object : GestureDetector.SimpleOnGestureListener() {
+            private val SWIPE_THRESHOLD = 100
+            private val SWIPE_VELOCITY_THRESHOLD = 100
+            override fun onFling(e1: MotionEvent?, e2: MotionEvent, vx: Float, vy: Float): Boolean {
+                if (e1 == null) return false
+                val dx = e2.x - e1.x
+                val dy = e2.y - e1.y
+                if (Math.abs(dx) > Math.abs(dy) && Math.abs(dx) > SWIPE_THRESHOLD && Math.abs(vx) > SWIPE_VELOCITY_THRESHOLD) {
+                    if (dx < 0) nextBlock() else prevBlock()
+                    return true
+                }
+                return false
+            }
+        })
+        binding.txtContent.setOnTouchListener { _, event ->
+            gestureDetector.onTouchEvent(event)
+            false
+        }
 
         applyTheme()
         applyTextSize()
@@ -362,7 +386,7 @@ class MainActivity : AppCompatActivity() {
         if (blocks.isEmpty()) return
         val header = buildHeader()
         headerLength = header.length
-        binding.btnPlay.text = if (ttsActive) "Play ■" else "Play"
+        binding.btnPlay.text = if (ttsActive) "Play \u25A0" else "Play"
         if (useSpannable) {
             val sp = SpannableString(header + blocks[blockIndex])
             currentSpannable = sp
@@ -412,15 +436,17 @@ class MainActivity : AppCompatActivity() {
     private fun startTts() {
         if (blocks.isEmpty()) { toast("Open an EPUB first"); return }
         ttsActive = true
+        ttsBusy = false
         tts.ttsMode = if (ttsMode == "online") "online" else "auto"
         ttsOnline = tts.onlineMode
-        binding.btnPlay.text = "Play ■"
+        binding.btnPlay.text = "Play \u25A0"
         speakBlock()
     }
 
     private fun stopTts() {
         ttsActive = false
         ttsOnline = false
+        ttsBusy = false
         tts.stopAll()
         currentChunkOffsets = IntArray(0); lastUtteranceId = ""
         if (blocks.isNotEmpty()) renderBlock()
@@ -429,6 +455,7 @@ class MainActivity : AppCompatActivity() {
     private fun speakBlock() {
         if (!ttsActive) return
         if (blocks.isEmpty() || blockIndex !in blocks.indices) { finishReading(); return }
+        ttsBusy = true
         renderBlock(useSpannable = true)
         val text = blocks[blockIndex]
         if (text.isBlank()) { nextBlockForTts(); return }
@@ -443,29 +470,40 @@ class MainActivity : AppCompatActivity() {
             currentChunks = chunks
             val single = "s${chapterIndex}_${blockIndex}"
             val multi = "m${chapterIndex}_${blockIndex}_"
+            var localOk = true
             for (i in chunks.indices) {
                 val id = if (chunks.size == 1) single else multi + i
                 val mode = if (i == 0) TextToSpeech.QUEUE_FLUSH else TextToSpeech.QUEUE_ADD
-                tts.speakLocal(chunks[i], id, mode)
+                if (!tts.speakLocal(chunks[i], id, mode)) { localOk = false; break }
             }
-            lastUtteranceId = if (chunks.size == 1) single else multi + (chunks.size - 1)
+            if (!localOk) {
+                ttsOnline = true
+                tts.speakOnline(text)
+            } else {
+                lastUtteranceId = if (chunks.size == 1) single else multi + (chunks.size - 1)
+            }
         }
     }
 
     private fun onUtteranceDone(utteranceId: String?) {
         if (!ttsActive) return
-        if (!ttsOnline && utteranceId == lastUtteranceId) nextBlockForTts()
+        if (!ttsOnline && utteranceId == lastUtteranceId) {
+            ttsBusy = false
+            nextBlockForTts()
+        }
     }
 
     private fun nextBlockForTts() {
+        if (!ttsActive) return
         if (blockIndex < blocks.size - 1) blockIndex++
         else if (chapterIndex < chapters.size - 1) { chapterIndex++; buildBlocks() }
         else { finishReading(); return }
-        savePosition(); speakBlock()
+        savePosition()
+        binding.txtContent.postDelayed({ speakBlock() }, 50)
     }
 
     private fun finishReading() {
-        ttsActive = false; ttsOnline = false; tts.stopAll()
+        ttsActive = false; ttsOnline = false; ttsBusy = false; tts.stopAll()
         binding.btnPlay.text = "Play"
         if (blocks.isNotEmpty()) renderBlock()
         toast("Finished reading")

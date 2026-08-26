@@ -30,7 +30,7 @@
             android:layout_height="wrap_content"
             android:layout_weight="1"
             android:layout_marginStart="4dp"
-            android:text="☰"/>
+            android:text="&#9776;"/>
     </LinearLayout>
 
     <LinearLayout
@@ -54,7 +54,7 @@
                 android:layout_height="wrap_content"
                 android:layout_weight="1"
                 android:layout_margin="4dp"
-                android:text="Save bookmark"/>
+                android:text="Bookmark"/>
 
             <Button
                 android:id="@+id/btnBookmarks"
@@ -72,71 +72,21 @@
                 android:layout_margin="4dp"
                 android:text="Theme"/>
         </LinearLayout>
-
-        <LinearLayout
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:orientation="horizontal">
-
-            <Button
-                android:id="@+id/btnTextSmall"
-                android:layout_width="0dp"
-                android:layout_height="wrap_content"
-                android:layout_weight="1"
-                android:layout_margin="4dp"
-                android:text="A−"/>
-
-            <Button
-                android:id="@+id/btnTextBig"
-                android:layout_width="0dp"
-                android:layout_height="wrap_content"
-                android:layout_weight="1"
-                android:layout_margin="4dp"
-                android:text="A+"/>
-
-            <Button
-                android:id="@+id/btnSpeed"
-                android:layout_width="0dp"
-                android:layout_height="wrap_content"
-                android:layout_weight="1"
-                android:layout_margin="4dp"
-                android:text="Speed"/>
-
-            <Button
-                android:id="@+id/btnSelectVoice"
-                android:layout_width="0dp"
-                android:layout_height="wrap_content"
-                android:layout_weight="1"
-                android:layout_margin="4dp"
-                android:text="Voice"/>
-        </LinearLayout>
-
-        <Button
-            android:id="@+id/btnSettings"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_margin="4dp"
-            android:text="Settings"/>
     </LinearLayout>
 
-    <ScrollView
-        android:id="@+id/scrollView"
+    <TextView
+        android:id="@+id/txtContent"
         android:layout_width="match_parent"
         android:layout_height="0dp"
         android:layout_weight="1"
         android:layout_marginStart="12dp"
-        android:layout_marginTop="8dp"
         android:layout_marginEnd="12dp"
-        android:layout_marginBottom="8dp"
-        android:fillViewport="true">
-
-        <TextView
-            android:id="@+id/txtContent"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:textColor="@color/dayText"
-            android:textSize="16sp"/>
-    </ScrollView>
+        android:paddingTop="8dp"
+        android:paddingBottom="8dp"
+        android:textColor="@color/dayText"
+        android:textSize="16sp"
+        android:scrollbars="vertical"
+        android:overScrollMode="never"/>
 
     <LinearLayout
         android:layout_width="match_parent"
@@ -144,15 +94,23 @@
         android:layout_marginStart="8dp"
         android:layout_marginTop="4dp"
         android:layout_marginEnd="8dp"
-        android:layout_marginBottom="8dp"
+        android:layout_marginBottom="2dp"
         android:orientation="horizontal">
+
+        <Button
+            android:id="@+id/btnPrev"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:layout_margin="3dp"
+            android:text="&#9664;"/>
 
         <Button
             android:id="@+id/btnPlay"
             android:layout_width="0dp"
             android:layout_height="wrap_content"
             android:layout_weight="1"
-            android:layout_margin="4dp"
+            android:layout_margin="3dp"
             android:text="Play"/>
 
         <Button
@@ -160,32 +118,73 @@
             android:layout_width="0dp"
             android:layout_height="wrap_content"
             android:layout_weight="1"
-            android:layout_margin="4dp"
-            android:text="Pause"/>
+            android:layout_margin="3dp"
+            android:text="&#9646;&#9646;"/>
 
         <Button
             android:id="@+id/btnStop"
             android:layout_width="0dp"
             android:layout_height="wrap_content"
             android:layout_weight="1"
-            android:layout_margin="4dp"
-            android:text="Stop"/>
-
-        <Button
-            android:id="@+id/btnPrev"
-            android:layout_width="0dp"
-            android:layout_height="wrap_content"
-            android:layout_weight="1"
-            android:layout_margin="4dp"
-            android:text="◀ Prev"/>
+            android:layout_margin="3dp"
+            android:text="&#9632;"/>
 
         <Button
             android:id="@+id/btnNext"
             android:layout_width="0dp"
             android:layout_height="wrap_content"
             android:layout_weight="1"
-            android:layout_margin="4dp"
-            android:text="Next ▶"/>
+            android:layout_margin="3dp"
+            android:text="&#9654;"/>
+    </LinearLayout>
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginStart="8dp"
+        android:layout_marginBottom="8dp"
+        android:layout_marginEnd="8dp"
+        android:orientation="horizontal">
+
+        <Button
+            android:id="@+id/btnTextSmall"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:layout_margin="3dp"
+            android:text="A&#8722;"/>
+
+        <Button
+            android:id="@+id/btnTextBig"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:layout_margin="3dp"
+            android:text="A+"/>
+
+        <Button
+            android:id="@+id/btnSpeed"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:layout_margin="3dp"
+            android:text="Speed"/>
+
+        <Button
+            android:id="@+id/btnSelectVoice"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:layout_margin="3dp"
+            android:text="Voice"/>
+
+        <Button
+            android:id="@+id/btnSettings"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:layout_margin="3dp"
+            android:text="&#9881;"/>
     </LinearLayout>
 
 </LinearLayout>
