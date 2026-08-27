@@ -39,6 +39,7 @@ class TtsManager(context: Context) : TextToSpeech.OnInitListener {
     private var onlineSentences: List<SentenceRange> = emptyList()
     private var onlineSentenceIndex = 0
     private var onlineFailures = 0
+    var localSpeechStartedAt = 0L
 
     val ready: Boolean get() = isReady
 
@@ -92,6 +93,7 @@ class TtsManager(context: Context) : TextToSpeech.OnInitListener {
     fun speakLocal(text: String, utteranceId: String, queueMode: Int = TextToSpeech.QUEUE_FLUSH): Boolean {
         if (!isReady || text.isBlank()) return false
         val result = tts?.speak(text, queueMode, null, utteranceId) ?: -1
+        if (result == TextToSpeech.SUCCESS) localSpeechStartedAt = System.currentTimeMillis()
         return result == TextToSpeech.SUCCESS
     }
 
@@ -211,9 +213,12 @@ class TtsManager(context: Context) : TextToSpeech.OnInitListener {
                     conn.setRequestProperty("Accept", "audio/mpeg")
                     conn.setRequestProperty("Referer", "https://translate.google.com/")
                     if (conn.responseCode == 200) {
-                        return conn.inputStream.use { it.readBytes() }
+                        val bytes = conn.inputStream.use { it.readBytes() }
+                        if (bytes.size > 500) return bytes
+                        lastError = IOException("Audio too small: ${bytes.size}B")
+                    } else {
+                        lastError = IOException("HTTP ${conn.responseCode}")
                     }
-                    lastError = IOException("HTTP ${conn.responseCode}")
                 } catch (e: Exception) {
                     lastError = e
                 }

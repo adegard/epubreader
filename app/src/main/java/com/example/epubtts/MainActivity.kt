@@ -491,8 +491,15 @@ class MainActivity : AppCompatActivity() {
     private fun onUtteranceDone(utteranceId: String?) {
         if (!ttsActive) return
         if (!ttsOnline && utteranceId == lastUtteranceId) {
-            ttsBusy = false
-            nextBlockForTts()
+            val elapsed = System.currentTimeMillis() - tts.localSpeechStartedAt
+            if (elapsed < 500 && blocks[blockIndex].length > 20) {
+                ttsOnline = true
+                tts.stopAll()
+                speakBlock()
+            } else {
+                ttsBusy = false
+                nextBlockForTts()
+            }
         }
     }
 
