@@ -40,8 +40,11 @@ class TtsManager(context: Context) : TextToSpeech.OnInitListener {
     private var onlineSentenceIndex = 0
     private var onlineFailures = 0
     private var totalOnlineFailures = 0
+    private var onlineLang: String? = null
     var localSpeechStartedAt = 0L
     var lastOnlineError: String? = null
+
+    fun setLanguageLock(lang: String?) { onlineLang = lang }
 
     val ready: Boolean get() = isReady
 
@@ -121,8 +124,10 @@ class TtsManager(context: Context) : TextToSpeech.OnInitListener {
         } else result
     }
 
-    fun speakOnline(text: String) {
+    fun speakOnline(text: String, langHint: String? = null) {
         if (text.isBlank()) return
+        if (langHint != null) onlineLang = langHint
+        else if (onlineLang == null) onlineLang = detectLang(text)
         onlineSentences = splitSentences(text)
         onlineSentenceIndex = 0
         onlineFailures = 0
@@ -150,7 +155,7 @@ class TtsManager(context: Context) : TextToSpeech.OnInitListener {
         val chunk = chunks[ci]
         thread {
             try {
-                val lang = detectLang(chunks.joinToString(" "))
+                val lang = onlineLang ?: detectLang(chunks.joinToString(" "))
                 val bytes = fetchOnlineSpeech(chunk, lang)
                 runOnUiThread { playMp3(bytes) { playChunks(sentence, chunks, ci + 1) } }
             } catch (e: Exception) {
@@ -251,6 +256,9 @@ class TtsManager(context: Context) : TextToSpeech.OnInitListener {
         }
         return if (chunks.isEmpty()) listOf(text) else chunks
     }
+
+    /** Detect language from a sample. Returns e.g. "en", "fr", "de", ... */
+    fun detectLanguage(text: String): String = detectLang(text)
 
     private fun detectLang(text: String): String {
         val t = text.take(500)

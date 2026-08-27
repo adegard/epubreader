@@ -8,6 +8,7 @@ import android.graphics.drawable.Drawable
 import android.graphics.drawable.GradientDrawable
 import android.net.Uri
 import android.os.Bundle
+import android.os.PowerManager
 import android.speech.tts.TextToSpeech
 import android.speech.tts.UtteranceProgressListener
 import android.speech.tts.Voice
@@ -76,6 +77,8 @@ class MainActivity : AppCompatActivity() {
     private var ttsActive = false
     private var ttsOnline = false
     private var ttsBusy = false
+    private var cachedLang: String? = null
+    private var wakeLock: PowerManager.WakeLock? = null
     private var currentChunkOffsets = IntArray(0)
     private var lastUtteranceId = ""
     private var headerLength = 0
@@ -272,6 +275,8 @@ class MainActivity : AppCompatActivity() {
     private fun presentChapters(chaps: List<EpubTextExtractor.Chapter>, jumpChapter: Int? = null, jumpBlock: Int? = null) {
         chapters = chaps
         stopTts()
+        cachedLang = null
+        tts.setLanguageLock(null)
         totalChapters = chapters.size
         chapterIndex = 0
         buildBlocks()
@@ -449,6 +454,14 @@ class MainActivity : AppCompatActivity() {
         ttsBusy = false
         tts.ttsMode = if (ttsMode == "online") "online" else "auto"
         ttsOnline = tts.onlineMode
+        var lang = cachedLang
+        if (lang == null) {
+            val sample = buildLanguageSample()
+            lang = if (sample.isBlank()) "en" else tts.detectLanguage(sample)
+            cachedLang = lang
+            tts.setLanguageLock(lang)
+        }
+        acquireWakeLock()
         binding.btnPlay.text = "Play \u25A0"
         speakBlock()
     }
@@ -458,8 +471,31 @@ class MainActivity : AppCompatActivity() {
         ttsOnline = false
         ttsBusy = false
         tts.stopAll()
+        releaseWakeLock()
         currentChunkOffsets = IntArray(0); lastUtteranceId = ""
         if (blocks.isNotEmpty()) renderBlock()
+    }
+
+    private fun buildLanguageSample(): String {
+        if (chapters.isEmpty()) return ""
+        val text = chapters.joinToString("\n") { c -> c.paragraphs.joinToString(" ") }
+        return text.take(2000)
+    }
+
+    private fun acquireWakeLock() {
+        try {
+            if (wakeLock == null) {
+                val pm = getSystemService(Context.POWER_SERVICE) as PowerManager
+                wakeLock = pm.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "epubreader:tts")
+            }
+            wakeLock?.acquire()
+        } catch (_: Exception) {}
+    }
+
+    private fun releaseWakeLock() {
+        try {
+            if (wakeLock?.isHeld == true) wakeLock?.release()
+        } catch (_: Exception) {}
     }
 
     private fun speakBlock() {
@@ -471,7 +507,7 @@ class MainActivity : AppCompatActivity() {
         if (text.isBlank()) { nextBlockForTts(); return }
 
         if (ttsOnline) {
-            tts.speakOnline(text)
+            tts.speakOnline(text, cachedLang)
         } else {
             val chunks = text.chunked(3000)
             currentChunkOffsets = IntArray(chunks.size)
@@ -488,7 +524,7 @@ class MainActivity : AppCompatActivity() {
             }
             if (!localOk) {
                 ttsOnline = true
-                tts.speakOnline(text)
+                tts.speakOnline(text, cachedLang)
             } else {
                 lastUtteranceId = if (chunks.size == 1) single else multi + (chunks.size - 1)
             }
@@ -521,6 +557,7 @@ class MainActivity : AppCompatActivity() {
 
     private fun finishReading() {
         ttsActive = false; ttsOnline = false; ttsBusy = false; tts.stopAll()
+        releaseWakeLock()
         binding.btnPlay.text = "Play"
         if (blocks.isNotEmpty()) renderBlock()
         toast("Finished reading")
@@ -809,7 +846,7 @@ class MainActivity : AppCompatActivity() {
         savePosition(); updateLibraryEntry()
     }
 
-    override fun onDestroy() { tts.shutdown(); super.onDestroy() }
+    override fun onDestroy() { releaseWakeLock(); tts.shutdown(); super.onDestroy() }
 
     companion object {
         private const val TTS_HIGHLIGHT_COLOR = 0x99FFC107.toInt()
