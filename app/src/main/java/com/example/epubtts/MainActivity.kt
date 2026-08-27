@@ -138,6 +138,7 @@ class MainActivity : AppCompatActivity() {
         gestureDetector = GestureDetector(this, object : GestureDetector.SimpleOnGestureListener() {
             private val SWIPE_THRESHOLD = 80
             private val SWIPE_VELOCITY_THRESHOLD = 80
+            override fun onDown(e: MotionEvent): Boolean = true
             override fun onFling(e1: MotionEvent?, e2: MotionEvent, vx: Float, vy: Float): Boolean {
                 if (e1 == null) return false
                 val dx = e2.x - e1.x
@@ -151,6 +152,7 @@ class MainActivity : AppCompatActivity() {
         })
         binding.txtContent.setOnTouchListener { _, event ->
             gestureDetector.onTouchEvent(event)
+            true
         }
 
         applyTheme()
