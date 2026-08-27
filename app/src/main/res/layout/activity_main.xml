@@ -72,6 +72,14 @@
                 android:layout_weight="1"
                 android:layout_margin="4dp"
                 android:text="Theme"/>
+
+            <Button
+                android:id="@+id/btnSettings"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:layout_margin="4dp"
+                android:text="&#9881;"/>
         </LinearLayout>
     </LinearLayout>
 
@@ -180,14 +188,6 @@
             android:layout_weight="1"
             android:layout_margin="3dp"
             android:text="Voice"/>
-
-        <Button
-            android:id="@+id/btnSettings"
-            android:layout_width="0dp"
-            android:layout_height="wrap_content"
-            android:layout_weight="1"
-            android:layout_margin="3dp"
-            android:text="&#9881;"/>
     </LinearLayout>
 
 </LinearLayout>
