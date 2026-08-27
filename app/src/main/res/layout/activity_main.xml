@@ -9,6 +9,7 @@
     android:animateLayoutChanges="true">
 
     <LinearLayout
+        android:id="@+id/topBar"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:layout_marginStart="12dp"
@@ -89,6 +90,7 @@
         android:overScrollMode="never"/>
 
     <LinearLayout
+        android:id="@+id/bottomBarRow1"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:layout_marginStart="8dp"
@@ -139,6 +141,7 @@
     </LinearLayout>
 
     <LinearLayout
+        android:id="@+id/bottomBarRow2"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:layout_marginStart="8dp"

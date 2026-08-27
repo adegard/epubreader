@@ -63,6 +63,7 @@ class MainActivity : AppCompatActivity() {
     private var showTitle = true
     private var showProgress = true
     private var ttsMode = "auto"
+    private var hideBottomBars = false
 
     private var totalBlocks = 0
     private var totalChapters = 0
@@ -135,13 +136,13 @@ class MainActivity : AppCompatActivity() {
         binding.btnSettings.setOnClickListener { showSettingsDialog() }
 
         gestureDetector = GestureDetector(this, object : GestureDetector.SimpleOnGestureListener() {
-            private val SWIPE_THRESHOLD = 100
-            private val SWIPE_VELOCITY_THRESHOLD = 100
+            private val SWIPE_THRESHOLD = 80
+            private val SWIPE_VELOCITY_THRESHOLD = 80
             override fun onFling(e1: MotionEvent?, e2: MotionEvent, vx: Float, vy: Float): Boolean {
                 if (e1 == null) return false
                 val dx = e2.x - e1.x
                 val dy = e2.y - e1.y
-                if (Math.abs(dx) > Math.abs(dy) && Math.abs(dx) > SWIPE_THRESHOLD && Math.abs(vx) > SWIPE_VELOCITY_THRESHOLD) {
+                if (Math.abs(dx) > Math.abs(dy) * 1.5f && Math.abs(dx) > SWIPE_THRESHOLD && Math.abs(vx) > SWIPE_VELOCITY_THRESHOLD) {
                     if (dx < 0) nextBlock() else prevBlock()
                     return true
                 }
@@ -150,10 +151,10 @@ class MainActivity : AppCompatActivity() {
         })
         binding.txtContent.setOnTouchListener { _, event ->
             gestureDetector.onTouchEvent(event)
-            false
         }
 
         applyTheme()
+        applyHideBars()
         applyTextSize()
 
         if (chapters.isEmpty()) {
@@ -573,6 +574,12 @@ class MainActivity : AppCompatActivity() {
 
     private fun applyTextSize() { binding.txtContent.textSize = textSize }
 
+    private fun applyHideBars() {
+        val vis = if (hideBottomBars) View.GONE else View.VISIBLE
+        binding.bottomBarRow1.visibility = vis
+        binding.bottomBarRow2.visibility = vis
+    }
+
     // ========= SETTINGS =========
 
     private fun showSettingsDialog() {
@@ -585,8 +592,9 @@ class MainActivity : AppCompatActivity() {
         add("TTS speed: ${speedLabel()}", 3)
         add("TTS voice: ${if (ttsMode == "online") "Online only" else "Auto (local + online)"}", 4)
         add("Theme: ${themeNames[themeMode]}", 5)
-        add("Clear saved positions", 6)
-        add("Clear library", 7)
+        add("Hide bottom bars: ${if (hideBottomBars) "on" else "off"}", 6)
+        add("Clear saved positions", 7)
+        add("Clear library", 8)
         AlertDialog.Builder(this).setTitle("Settings")
             .setItems(items.toTypedArray()) { _, which ->
                 when (actions[which]) {
@@ -596,8 +604,9 @@ class MainActivity : AppCompatActivity() {
                     3 -> showSpeedDialog()
                     4 -> pickTtsVoiceMode()
                     5 -> toggleTheme()
-                    6 -> clearPositions()
-                    7 -> clearLibrary()
+                    6 -> { hideBottomBars = !hideBottomBars; prefs().edit().putBoolean("hide_bottom_bars", hideBottomBars).apply(); applyHideBars() }
+                    7 -> clearPositions()
+                    8 -> clearLibrary()
                 }
             }.setNegativeButton("Close", null).show()
     }
@@ -773,6 +782,7 @@ class MainActivity : AppCompatActivity() {
         showTitle = prefs().getBoolean("show_title", true)
         showProgress = prefs().getBoolean("show_progress", true)
         ttsMode = prefs().getString("tts_mode", "auto") ?: "auto"
+        hideBottomBars = prefs().getBoolean("hide_bottom_bars", false)
     }
 
     private fun toast(msg: String) { Toast.makeText(this, msg, Toast.LENGTH_SHORT).show() }
