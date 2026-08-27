@@ -117,7 +117,14 @@ class MainActivity : AppCompatActivity() {
         })
         tts.onSentenceHighlight = { s, e -> runOnUiThread { highlightSentence(s, e) } }
         tts.onOnlineUtteranceDone = { runOnUiThread { ttsBusy = false; nextBlockForTts() } }
-        tts.onOnlineError = { runOnUiThread { ttsBusy = false; finishReading() } }
+        tts.onOnlineError = {
+            runOnUiThread {
+                ttsBusy = false
+                val err = tts.lastOnlineError ?: "network error"
+                toast("TTS failed: $err")
+                finishReading()
+            }
+        }
 
         binding.btnOpenEpub.setOnClickListener { openEpubPicker() }
         binding.btnMenu.setOnClickListener { toggleMenu() }

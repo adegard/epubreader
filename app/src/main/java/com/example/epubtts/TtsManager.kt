@@ -39,7 +39,9 @@ class TtsManager(context: Context) : TextToSpeech.OnInitListener {
     private var onlineSentences: List<SentenceRange> = emptyList()
     private var onlineSentenceIndex = 0
     private var onlineFailures = 0
+    private var totalOnlineFailures = 0
     var localSpeechStartedAt = 0L
+    var lastOnlineError: String? = null
 
     val ready: Boolean get() = isReady
 
@@ -124,6 +126,8 @@ class TtsManager(context: Context) : TextToSpeech.OnInitListener {
         onlineSentences = splitSentences(text)
         onlineSentenceIndex = 0
         onlineFailures = 0
+        totalOnlineFailures = 0
+        lastOnlineError = null
         playOnlineSentence()
     }
 
@@ -150,9 +154,11 @@ class TtsManager(context: Context) : TextToSpeech.OnInitListener {
                 val bytes = fetchOnlineSpeech(chunk, lang)
                 runOnUiThread { playMp3(bytes) { playChunks(sentence, chunks, ci + 1) } }
             } catch (e: Exception) {
+                lastOnlineError = e.message
                 runOnUiThread {
                     onlineFailures++
-                    if (onlineFailures > 4) {
+                    totalOnlineFailures++
+                    if (totalOnlineFailures > 6) {
                         stopAll()
                         onOnlineError?.invoke()
                     } else {
