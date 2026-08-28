@@ -144,6 +144,7 @@ class MainActivity : AppCompatActivity() {
         binding.btnBookmarks.setOnClickListener { showBookmarksDialog() }
         binding.btnTheme.setOnClickListener { toggleTheme() }
         binding.btnSettings.setOnClickListener { showSettingsDialog() }
+        binding.btnRecents.setOnClickListener { showLibraryDialog() }
 
         gestureDetector = GestureDetector(this, object : GestureDetector.SimpleOnGestureListener() {
             private val SWIPE_THRESHOLD = 80
@@ -211,7 +212,8 @@ class MainActivity : AppCompatActivity() {
         val list = loadLibrary().toMutableList()
         val idx = list.indexOfFirst { it.uri == uri }
         val progress = if (totalBlocks > 0) (globalBlockIndex() * 100 / totalBlocks) else 0
-        val entry = LibraryEntry(title.ifBlank { uri }, uri, chapter, block, progress, System.currentTimeMillis())
+        val label = if (title.isNotBlank()) title else fileLabel(uri)
+        val entry = LibraryEntry(label.ifBlank { uri }, uri, chapter, block, progress, System.currentTimeMillis())
         if (idx >= 0) list[idx] = entry else list.add(0, entry)
         if (list.size > 50) list.removeAt(list.size - 1)
         saveLibrary(list)
@@ -224,11 +226,12 @@ class MainActivity : AppCompatActivity() {
             return
         }
         val titles = list.map { e ->
+            val label = if (e.title.isNotBlank()) e.title else fileLabel(e.uri)
             val chapLabel = if (e.progress > 0) " ${e.progress}%" else ""
-            e.title + chapLabel
+            label + chapLabel
         }.toTypedArray()
         AlertDialog.Builder(this)
-            .setTitle("Library")
+            .setTitle("Recent books")
             .setItems(titles) { _, which ->
                 val entry = list[which]
                 val uri = Uri.parse(entry.uri)
@@ -238,6 +241,23 @@ class MainActivity : AppCompatActivity() {
             .setNegativeButton("Close", null)
             .show()
     }
+
+    private fun fileLabel(uriString: String): String {
+        return try {
+            val uri = Uri.parse(uriString)
+            val name = queryDisplayName(uri)
+            if (name.isNullOrBlank() || name.endsWith(":") || name.startsWith("/")) {
+                uri.lastPathSegment?.substringAfterLast('/') ?: "Book"
+            } else name
+        } catch (e: Exception) { "Book" }
+    }
+
+    private fun queryDisplayName(uri: Uri): String? = try {
+        contentResolver.query(uri, arrayOf(
+            android.provider.OpenableColumns.DISPLAY_NAME), null, null, null)?.use { c ->
+            if (c.moveToFirst()) c.getString(0) else null
+        }
+    } catch (e: Exception) { null }
 
     // ========= EPUB OPENING / PARSING =========
 
@@ -718,7 +738,8 @@ class MainActivity : AppCompatActivity() {
             binding.btnOpenEpub, binding.btnMenu, binding.btnPlay, binding.btnPause,
             binding.btnStop, binding.btnPrev, binding.btnNext, binding.btnBookmark,
             binding.btnBookmarks, binding.btnTheme, binding.btnTextSmall,
-            binding.btnTextBig, binding.btnSpeed, binding.btnSelectVoice, binding.btnSettings
+            binding.btnTextBig, binding.btnSpeed, binding.btnSelectVoice, binding.btnSettings,
+            binding.btnRecents
         )
         for (b in buttons) {
             if (!defaultButtonTint.containsKey(b.id)) {

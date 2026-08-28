@@ -81,6 +81,13 @@
                 android:layout_margin="4dp"
                 android:text="&#9881;"/>
         </LinearLayout>
+
+        <Button
+            android:id="@+id/btnRecents"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_margin="4dp"
+            android:text="Recent books"/>
     </LinearLayout>
 
     <TextView
