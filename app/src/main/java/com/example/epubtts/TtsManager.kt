@@ -41,6 +41,7 @@ class TtsManager(context: Context) : TextToSpeech.OnInitListener {
     private var onlineFailures = 0
     private var totalOnlineFailures = 0
     private var onlineLang: String? = null
+    private var generation = 0
     var localSpeechStartedAt = 0L
     var lastOnlineError: String? = null
 
@@ -126,6 +127,7 @@ class TtsManager(context: Context) : TextToSpeech.OnInitListener {
 
     fun speakOnline(text: String, langHint: String? = null) {
         if (text.isBlank()) return
+        generation++
         if (langHint != null) onlineLang = langHint
         else if (onlineLang == null) onlineLang = detectLang(text)
         onlineSentences = splitSentences(text)
@@ -137,8 +139,9 @@ class TtsManager(context: Context) : TextToSpeech.OnInitListener {
     }
 
     private fun playOnlineSentence() {
+        val gen = generation
         if (onlineSentenceIndex >= onlineSentences.size) {
-            onOnlineUtteranceDone?.invoke()
+            if (gen == generation) onOnlineUtteranceDone?.invoke()
             return
         }
         val sentence = onlineSentences[onlineSentenceIndex]
@@ -148,8 +151,9 @@ class TtsManager(context: Context) : TextToSpeech.OnInitListener {
     }
 
     private fun playChunks(sentence: SentenceRange, chunks: List<String>, ci: Int) {
+        val gen = generation
         if (ci >= chunks.size) {
-            onOnlineSentenceDone()
+            if (gen == generation) onOnlineSentenceDone()
             return
         }
         val chunk = chunks[ci]
@@ -157,10 +161,16 @@ class TtsManager(context: Context) : TextToSpeech.OnInitListener {
             try {
                 val lang = onlineLang ?: detectLang(chunks.joinToString(" "))
                 val bytes = fetchOnlineSpeech(chunk, lang)
-                runOnUiThread { playMp3(bytes) { playChunks(sentence, chunks, ci + 1) } }
+                if (gen != generation) return@thread
+                runOnUiThread {
+                    if (gen != generation) return@runOnUiThread
+                    playMp3(bytes) { playChunks(sentence, chunks, ci + 1) }
+                }
             } catch (e: Exception) {
                 lastOnlineError = e.message
+                if (gen != generation) return@thread
                 runOnUiThread {
+                    if (gen != generation) return@runOnUiThread
                     onlineFailures++
                     totalOnlineFailures++
                     if (totalOnlineFailures > 6) {
@@ -209,7 +219,8 @@ class TtsManager(context: Context) : TextToSpeech.OnInitListener {
             "https://translate.googleapis.com/translate_tts?client=gtx&ie=UTF-8&tl=%s&q=%s",
             "https://translate.google.com/translate_tts?ie=UTF-8&client=tw-ob&tl=%s&q=%s"
         )
-        val langs = listOf(lang, "en").distinct()
+        val locked = onlineLang != null
+        val langs = if (locked) listOf(lang) else listOf(lang, "en").distinct()
         var lastError: Exception? = null
         for (l in langs) {
             for (template in hosts) {
@@ -261,28 +272,61 @@ class TtsManager(context: Context) : TextToSpeech.OnInitListener {
     fun detectLanguage(text: String): String = detectLang(text)
 
     private fun detectLang(text: String): String {
-        val t = text.take(500)
-        val lower = t.lowercase()
-        val scores = mapOf(
-            "en" to listOf("the", "and", "that", "with", "this", "you", "for", "are", "was"),
-            "es" to listOf("que", "de", "la", "el", "y", "los", "las", "una", "para", "con"),
-            "fr" to listOf("les", "des", "que", "une", "pour", "avec", "dans", "est", "sur"),
-            "it" to listOf("che", "per", "con", "una", "non", "alla", "sono", "come", "più"),
-            "de" to listOf("der", "die", "und", "das", "ist", "mit", "nicht", "ein"),
-            "pt" to listOf("que", "uma", "para", "com", "dos", "das", "não", "são", "mais"),
-            "nl" to listOf("van", "het", "een", "voor", "niet", "met", "zijn", "als")
-        )
+        val sample = text.take(3000).lowercase(Locale.ROOT)
+        val nfd = java.text.Normalizer.normalize(sample, java.text.Normalizer.Form.NFD)
+        val cleaned = nfd.replace(Regex("[^a-z0-9 ]"), " ")
+        val freqs = HashMap<String, Int>()
+        for (w in cleaned.split(Regex("\\s+"))) {
+            if (w.length > 1) freqs[w] = (freqs[w] ?: 0) + 1
+        }
         var best = "en"
         var bestScore = -1
-        for ((lang, words) in scores) {
-            val score = words.count { Regex("\\b$it\\b").containsMatchIn(lower) }
+        for ((lang, words) in LANG_WORDS) {
+            var score = 0
+            for (w in words) {
+                val f = freqs[w] ?: continue
+                score += 1 + f
+            }
             if (score > bestScore) { bestScore = score; best = lang }
         }
-        return if (bestScore >= 2) best else "en"
+        return if (bestScore >= 3) best else "en"
     }
+
+    private val LANG_WORDS = mapOf(
+        "en" to listOf("the", "and", "that", "with", "this", "you", "not", "your",
+            "have", "will", "were", "which", "their", "about", "would", "there",
+            "here", "then", "was", "they", "what"),
+        "fr" to listOf("les", "des", "est", "pour", "dans", "une", "aux", "sur",
+            "avec", "mais", "etre", "sont", "pas", "vous", "nous", "leur",
+            "faire", "encore", "quand", "comme", "tout", "tres", "bien",
+            "aussi", "alors", "deja"),
+        "es" to listOf("los", "las", "como", "muy", "pero", "cuando", "estos",
+            "estas", "nada", "tambien", "sobre", "sus", "mas", "nuestro",
+            "siempre", "entonces", "luego", "aunque", "otra"),
+        "de" to listOf("der", "die", "das", "und", "ist", "nicht", "mit", "den",
+            "dem", "ein", "eine", "fur", "auf", "auch", "aber", "sie", "wir",
+            "wenn", "uber", "nur", "sind", "ihr", "diese"),
+        "it" to listOf("il", "gli", "della", "dello", "non", "sono", "anche",
+            "alla", "dove", "quando", "molto", "sua", "loro", "loro", "state",
+            "essere", "ancora", "questa", "questo", "poi", "puo"),
+        "pt" to listOf("os", "as", "uma", "dos", "das", "sao", "nao", "muito",
+            "por", "esta", "tambem", "pode", "foi", "ser", "nos", "agora",
+            "ainda", "mesmo", "bem", "entre", "todo", "depois"),
+        "nl" to listOf("het", "een", "van", "wordt", "zijn", "niet", "voor",
+            "ook", "maar", "met", "over", "deze", "naar", "als", "dan",
+            "nog", "zich", "aller", "geen", "twee"),
+        "sv" to listOf("och", "att", "det", "som", "for", "pa", "med", "ar",
+            "var", "vad", "inte", "har", "den", "vill", "av", "mig", "dig"),
+        "no" to listOf("og", "det", "som", "er", "med", "ikke", "har", "vil",
+            "var", "av", "den", "seg", "mang", "hvor", "sine"),
+        "pl" to listOf("nie", "sie", "jest", "ze", "przez", "byc", "moze",
+            "tylko", "jak", "dla", "tak", "co", "do", "od", "ju", "bardzo",
+            "poniewaz", "wszystko")
+    )
 
     // --- Controls ---
     fun stopAll() {
+        generation++
         try { tts?.stop() } catch (_: Exception) {}
         mediaPlayer?.release()
         mediaPlayer = null

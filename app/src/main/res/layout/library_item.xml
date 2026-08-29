@@ -12,8 +12,8 @@
 
     <ImageView
         android:id="@+id/imgCover"
-        android:layout_width="44dp"
-        android:layout_height="58dp"
+        android:layout_width="60dp"
+        android:layout_height="80dp"
         android:scaleType="fitXY"
         android:contentDescription="Cover"/>
 

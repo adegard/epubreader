@@ -87,6 +87,7 @@ class MainActivity : AppCompatActivity() {
     private var ttsActive = false
     private var ttsOnline = false
     private var ttsBusy = false
+    private var lastOnlineAdvanceAt = 0L
     private var cachedLang: String? = null
     private var wakeLock: PowerManager.WakeLock? = null
     private var currentChunkOffsets = IntArray(0)
@@ -129,7 +130,15 @@ class MainActivity : AppCompatActivity() {
             }
         })
         tts.onSentenceHighlight = { s, e -> runOnUiThread { highlightSentence(s, e) } }
-        tts.onOnlineUtteranceDone = { runOnUiThread { ttsBusy = false; nextBlockForTts() } }
+        tts.onOnlineUtteranceDone = {
+            runOnUiThread {
+                ttsBusy = false
+                val now = System.currentTimeMillis()
+                if (now - lastOnlineAdvanceAt < 250) return@runOnUiThread
+                lastOnlineAdvanceAt = now
+                nextBlockForTts()
+            }
+        }
         tts.onOnlineError = {
             runOnUiThread {
                 ttsBusy = false
@@ -203,7 +212,7 @@ class MainActivity : AppCompatActivity() {
         binding.txtCurrentBook.setTextColor(themeColors().second)
         binding.imgCurrentCover.setImageDrawable(makeCoverPlaceholder())
         if (currentCover.isNotBlank() && File(currentCover).exists()) {
-            loadThumb(currentCover, 120)?.let { binding.imgCurrentCover.setImageBitmap(it) }
+            loadThumb(currentCover, 220)?.let { binding.imgCurrentCover.setImageBitmap(it) }
         }
     }
 
@@ -283,7 +292,7 @@ class MainActivity : AppCompatActivity() {
                 val sub = row.findViewById<TextView>(R.id.txtSub)
                 cover.setImageDrawable(makeCoverPlaceholder())
                 if (e.cover.isNotBlank() && File(e.cover).exists()) {
-                    loadThumb(e.cover, 120)?.let { cover.setImageBitmap(it) }
+                    loadThumb(e.cover, 220)?.let { cover.setImageBitmap(it) }
                 }
                 title.text = if (e.title.isNotBlank()) e.title else fileLabel(e.uri)
                 sub.text = if (e.progress > 0) "${e.progress}% read" else ""
@@ -578,7 +587,7 @@ class MainActivity : AppCompatActivity() {
     private fun buildLanguageSample(): String {
         if (chapters.isEmpty()) return ""
         val text = chapters.joinToString("\n") { c -> c.paragraphs.joinToString(" ") }
-        return text.take(2000)
+        return text.take(3000)
     }
 
     private fun acquireWakeLock() {
