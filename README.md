@@ -1,3 +1,5 @@
+[![Buy me a coffee](https://cdn.buymeacoffee.com/buttons/v2/default-red.png)](https://www.buymeacoffee.com/adegard)
+
 # EpubReader
 
 A simple EPUB reader for Android with text-to-speech, library management, and customizable themes.
