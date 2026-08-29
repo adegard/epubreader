@@ -4,6 +4,8 @@ import android.app.Activity
 import android.content.Context
 import android.content.Intent
 import android.content.res.ColorStateList
+import android.graphics.Bitmap
+import android.graphics.BitmapFactory
 import android.graphics.drawable.Drawable
 import android.graphics.drawable.GradientDrawable
 import android.net.Uri
@@ -17,9 +19,14 @@ import android.text.SpannableString
 import android.text.Spanned
 import android.text.style.BackgroundColorSpan
 import android.view.GestureDetector
+import android.view.LayoutInflater
 import android.view.MotionEvent
 import android.view.View
+import android.view.ViewGroup
+import android.widget.ArrayAdapter
 import android.widget.EditText
+import android.widget.ImageView
+import android.widget.TextView
 import android.widget.Toast
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AlertDialog
@@ -27,6 +34,7 @@ import androidx.appcompat.app.AppCompatActivity
 import com.example.epubtts.databinding.ActivityMainBinding
 import org.json.JSONArray
 import org.json.JSONObject
+import java.io.File
 import java.security.MessageDigest
 import kotlin.concurrent.thread
 
@@ -43,7 +51,8 @@ data class LibraryEntry(
     val chapter: Int,
     val block: Int,
     val progress: Int,
-    val timestamp: Long
+    val timestamp: Long,
+    val cover: String = ""
 )
 
 class MainActivity : AppCompatActivity() {
@@ -57,6 +66,7 @@ class MainActivity : AppCompatActivity() {
     private var blockIndex = 0
     private var currentUri = ""
     private var currentTitle = ""
+    private var currentCover = ""
 
     private var textSize = 16f
     private var ttsSpeed = 1.0f
@@ -177,8 +187,45 @@ class MainActivity : AppCompatActivity() {
 
     // ========= MENU =========
     private fun toggleMenu() {
-        binding.menuPanel.visibility =
-            if (binding.menuPanel.visibility == View.VISIBLE) View.GONE else View.VISIBLE
+        val opening = binding.menuPanel.visibility != View.VISIBLE
+        if (opening) updateCurrentBookBar()
+        binding.menuPanel.visibility = if (opening) View.VISIBLE else View.GONE
+    }
+
+    private fun updateCurrentBookBar() {
+        val hasBook = chapters.isNotEmpty()
+        binding.currentBookBar.visibility = if (hasBook) View.VISIBLE else View.GONE
+        if (!hasBook) return
+        val label = if (currentTitle.isNotBlank()) currentTitle else fileLabel(currentUri)
+        val pct = progressPercent()
+        binding.txtCurrentBook.text =
+            "$label — ${pct}% · Chapter ${chapterIndex + 1}/$totalChapters"
+        binding.txtCurrentBook.setTextColor(themeColors().second)
+        binding.imgCurrentCover.setImageDrawable(makeCoverPlaceholder())
+        if (currentCover.isNotBlank() && File(currentCover).exists()) {
+            loadThumb(currentCover, 120)?.let { binding.imgCurrentCover.setImageBitmap(it) }
+        }
+    }
+
+    private fun makeCoverPlaceholder(): Drawable {
+        val d = GradientDrawable()
+        d.setColor(0xFF5A5A5A.toInt())
+        d.setStroke(dp(1), 0xFF8A8A8A.toInt())
+        d.cornerRadius = dp(3).toFloat()
+        return d
+    }
+
+    private fun loadThumb(path: String, target: Int = 160): Bitmap? {
+        return try {
+            val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+            BitmapFactory.decodeFile(path, bounds)
+            if (bounds.outWidth <= 0) return null
+            var sample = 1
+            while (bounds.outWidth / (sample * 2) >= target) sample *= 2
+            BitmapFactory.decodeFile(path, BitmapFactory.Options().apply {
+                inSampleSize = sample
+            })
+        } catch (e: Exception) { null }
     }
 
     // ========= LIBRARY =========
@@ -192,7 +239,8 @@ class MainActivity : AppCompatActivity() {
                 LibraryEntry(
                     o.optString("title"), o.optString("uri"),
                     o.optInt("ch", 0), o.optInt("bl", 0),
-                    o.optInt("progress", 0), o.optLong("ts", 0)
+                    o.optInt("progress", 0), o.optLong("ts", 0),
+                    o.optString("cover", "")
                 )
             }.toMutableList()
         } catch (e: Exception) { mutableListOf() }
@@ -203,7 +251,7 @@ class MainActivity : AppCompatActivity() {
         for (e in list) {
             arr.put(JSONObject().put("title", e.title).put("uri", e.uri)
                 .put("ch", e.chapter).put("bl", e.block)
-                .put("progress", e.progress).put("ts", e.timestamp))
+                .put("progress", e.progress).put("ts", e.timestamp).put("cover", e.cover))
         }
         libraryPrefs().edit().putString("entries", arr.toString()).apply()
     }
@@ -213,7 +261,7 @@ class MainActivity : AppCompatActivity() {
         val idx = list.indexOfFirst { it.uri == uri }
         val progress = if (totalBlocks > 0) (globalBlockIndex() * 100 / totalBlocks) else 0
         val label = if (title.isNotBlank()) title else fileLabel(uri)
-        val entry = LibraryEntry(label.ifBlank { uri }, uri, chapter, block, progress, System.currentTimeMillis())
+        val entry = LibraryEntry(label.ifBlank { uri }, uri, chapter, block, progress, System.currentTimeMillis(), currentCover)
         if (idx >= 0) list[idx] = entry else list.add(0, entry)
         if (list.size > 50) list.removeAt(list.size - 1)
         saveLibrary(list)
@@ -225,14 +273,26 @@ class MainActivity : AppCompatActivity() {
             showMessage("Tap \"Open EPUB\" to select a book.")
             return
         }
-        val titles = list.map { e ->
-            val label = if (e.title.isNotBlank()) e.title else fileLabel(e.uri)
-            val chapLabel = if (e.progress > 0) " ${e.progress}%" else ""
-            label + chapLabel
-        }.toTypedArray()
+        val adapter = object : ArrayAdapter<LibraryEntry>(this, 0, list) {
+            override fun getView(pos: Int, convertView: View?, parent: ViewGroup): View {
+                val row = convertView ?: LayoutInflater.from(this@MainActivity)
+                    .inflate(R.layout.library_item, parent, false)
+                val e = getItem(pos) ?: return row
+                val cover = row.findViewById<ImageView>(R.id.imgCover)
+                val title = row.findViewById<TextView>(R.id.txtTitle)
+                val sub = row.findViewById<TextView>(R.id.txtSub)
+                cover.setImageDrawable(makeCoverPlaceholder())
+                if (e.cover.isNotBlank() && File(e.cover).exists()) {
+                    loadThumb(e.cover, 120)?.let { cover.setImageBitmap(it) }
+                }
+                title.text = if (e.title.isNotBlank()) e.title else fileLabel(e.uri)
+                sub.text = if (e.progress > 0) "${e.progress}% read" else ""
+                return row
+            }
+        }
         AlertDialog.Builder(this)
             .setTitle("Recent books")
-            .setItems(titles) { _, which ->
+            .setAdapter(adapter) { _, which ->
                 val entry = list[which]
                 val uri = Uri.parse(entry.uri)
                 loadEpub(uri, entry.chapter, entry.block)
@@ -282,6 +342,13 @@ class MainActivity : AppCompatActivity() {
             try {
                 val input = contentResolver.openInputStream(uri)
                 val chaps = input?.use { EpubTextExtractor.extractChapters(it) } ?: emptyList()
+                if (chaps.isNotEmpty()) {
+                    val cover = try {
+                        val bytes = contentResolver.openInputStream(uri)?.use { EpubTextExtractor.extractCover(it) }
+                        if (bytes != null) saveCover(bytes) else ""
+                    } catch (e: Exception) { "" }
+                    runOnUiThread { currentCover = cover }
+                }
                 runOnUiThread {
                     if (chaps.isEmpty()) { showMessage("[No readable content in this EPUB]"); return@runOnUiThread }
                     presentChapters(chaps, jumpChapter, jumpBlock)
@@ -290,6 +357,16 @@ class MainActivity : AppCompatActivity() {
                 runOnUiThread { showMessage("Error loading EPUB:\n${e.message}") }
             }
         }
+    }
+
+    private fun saveCover(bytes: ByteArray): String {
+        return try {
+            val dir = File(filesDir, "covers")
+            dir.mkdirs()
+            val f = File(dir, "${uriKey(currentUri)}.img")
+            f.writeBytes(bytes)
+            f.absolutePath
+        } catch (e: Exception) { "" }
     }
 
     private fun presentChapters(chaps: List<EpubTextExtractor.Chapter>, jumpChapter: Int? = null, jumpBlock: Int? = null) {
@@ -311,6 +388,8 @@ class MainActivity : AppCompatActivity() {
             val pos = loadPosition(currentUri)
             if (pos != null) askResume(pos.first, pos.second) else renderBlock()
         }
+        updateCurrentBookBar()
+        updateLibraryEntry()
     }
 
     private fun askResume(chapter: Int, block: Int) {

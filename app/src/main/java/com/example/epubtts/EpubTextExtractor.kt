@@ -44,6 +44,37 @@ object EpubTextExtractor {
         return chapters
     }
 
+    fun extractCover(epubInputStream: InputStream): ByteArray? {
+        val entries = readZipEntries(epubInputStream)
+        val opfPath = entries.keys.firstOrNull { it.lowercase().endsWith(".opf") } ?: return null
+        val opfData = entries[opfPath] ?: return null
+        val doc = Jsoup.parse(String(opfData, Charsets.UTF_8), "", Parser.xmlParser())
+        val baseDir = File(opfPath).parent ?: ""
+
+        val manifestHrefs = mutableMapOf<String, String>()
+        for (item in doc.select("manifest > item")) {
+            val id = item.attr("id")
+            if (id.isNotEmpty() && item.attr("href").isNotEmpty()) manifestHrefs[id] = item.attr("href")
+        }
+
+        var coverId: String? = null
+        for (item in doc.select("manifest > item")) {
+            if (item.attr("properties").contains("cover-image")) { coverId = item.attr("id"); break }
+        }
+        if (coverId == null) {
+            for (meta in doc.select("metadata > meta")) {
+                if (meta.attr("name").equals("cover", ignoreCase = true) && meta.attr("content").isNotEmpty()) {
+                    coverId = meta.attr("content")
+                    break
+                }
+            }
+        }
+
+        val href = coverId?.let { manifestHrefs[it] } ?: return null
+        val rel = if (baseDir.isEmpty()) href else "$baseDir/$href"
+        return lookupEntry(entries, rel)
+    }
+
     private fun readZipEntries(stream: InputStream): Map<String, ByteArray> {
         val zip = ZipInputStream(BufferedInputStream(stream))
         val entries = mutableMapOf<String, ByteArray>()
