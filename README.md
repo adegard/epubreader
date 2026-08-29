@@ -4,6 +4,10 @@
 
 A simple EPUB reader for Android with text-to-speech, library management, and customizable themes.
 
+<p align="center">
+  <img src="screenshots/app.png" alt="EpubReader screenshot" width="300">
+</p>
+
 ## Features
 
 - **EPUB parsing** with OPF spine-order chapter detection
