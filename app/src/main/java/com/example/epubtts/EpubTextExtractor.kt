@@ -44,6 +44,21 @@ object EpubTextExtractor {
         return chapters
     }
 
+    fun extractTitle(epubInputStream: InputStream): String {
+        val entries = readZipEntries(epubInputStream)
+        val opfPath = entries.keys.firstOrNull { it.lowercase().endsWith(".opf") } ?: return ""
+        val opfData = entries[opfPath] ?: return ""
+        val doc = Jsoup.parse(String(opfData, Charsets.UTF_8), "", Parser.xmlParser())
+        val metadata = doc.select("metadata").firstOrNull() ?: return ""
+        for (el in metadata.children()) {
+            if (el.tagName().endsWith("title")) {
+                val t = el.text().trim()
+                if (t.isNotEmpty()) return t
+            }
+        }
+        return ""
+    }
+
     fun extractCover(epubInputStream: InputStream): ByteArray? {
         val entries = readZipEntries(epubInputStream)
         val opfPath = entries.keys.firstOrNull { it.lowercase().endsWith(".opf") } ?: return null

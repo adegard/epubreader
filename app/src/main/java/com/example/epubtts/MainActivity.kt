@@ -6,6 +6,7 @@ import android.content.Intent
 import android.content.res.ColorStateList
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
+import android.graphics.Typeface
 import android.graphics.drawable.Drawable
 import android.graphics.drawable.GradientDrawable
 import android.net.Uri
@@ -16,8 +17,11 @@ import android.speech.tts.UtteranceProgressListener
 import android.speech.tts.Voice
 import android.text.InputType
 import android.text.SpannableString
+import android.text.SpannableStringBuilder
 import android.text.Spanned
 import android.text.style.BackgroundColorSpan
+import android.text.style.RelativeSizeSpan
+import android.text.style.StyleSpan
 import android.view.GestureDetector
 import android.view.LayoutInflater
 import android.view.MotionEvent
@@ -55,6 +59,13 @@ data class LibraryEntry(
     val cover: String = ""
 )
 
+data class BookPos(
+    val uri: String,
+    val chapter: Int,
+    val block: Int,
+    val title: String
+)
+
 class MainActivity : AppCompatActivity() {
 
     private lateinit var binding: ActivityMainBinding
@@ -66,7 +77,9 @@ class MainActivity : AppCompatActivity() {
     private var blockIndex = 0
     private var currentUri = ""
     private var currentTitle = ""
+    private var currentBookTitle = ""
     private var currentCover = ""
+    private var currentFingerprint = ""
 
     private var textSize = 16f
     private var ttsSpeed = 1.0f
@@ -161,6 +174,7 @@ class MainActivity : AppCompatActivity() {
         binding.btnTextBig.setOnClickListener { changeTextSize(2f) }
         binding.btnBookmark.setOnClickListener { saveBookmark() }
         binding.btnBookmarks.setOnClickListener { showBookmarksDialog() }
+        binding.btnChapters.setOnClickListener { showChaptersDialog() }
         binding.btnTheme.setOnClickListener { toggleTheme() }
         binding.btnSettings.setOnClickListener { showSettingsDialog() }
         binding.btnRecents.setOnClickListener { showLibraryDialog() }
@@ -224,11 +238,20 @@ class MainActivity : AppCompatActivity() {
         val hasBook = chapters.isNotEmpty()
         binding.currentBookBar.visibility = if (hasBook) View.VISIBLE else View.GONE
         if (!hasBook) return
-        val label = if (currentTitle.isNotBlank()) currentTitle else fileLabel(currentUri)
+        val libTitle = loadLibrary().firstOrNull { it.uri == currentUri }?.title
+        val bookTitle = (!libTitle.isNullOrBlank())
+            .let { if (it) libTitle!! else currentBookTitle.ifBlank { fileLabel(currentUri) } }
         val pct = progressPercent()
-        binding.txtCurrentBook.text =
-            "$label — ${pct}% · Chapter ${chapterIndex + 1}/$totalChapters"
-        binding.txtCurrentBook.setTextColor(themeColors().second)
+        val chapterLine = "${currentTitle.ifBlank { "Chapter ${chapterIndex + 1}" }}" +
+            " · Block ${blockIndex + 1}/${blocks.size} · $pct% · ${chapterIndex + 1}/$totalChapters"
+        val fg = themeColors().second
+        val sp = SpannableStringBuilder()
+        sp.append(bookTitle.ifBlank { "Book" }, StyleSpan(Typeface.BOLD), Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
+        sp.append("\n")
+        sp.append(chapterLine, StyleSpan(Typeface.NORMAL), Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
+        sp.setSpan(RelativeSizeSpan(0.85f), bookTitle.length + 1, sp.length, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
+        binding.txtCurrentBook.setTextColor(fg)
+        binding.txtCurrentBook.text = sp
         binding.imgCurrentCover.setImageDrawable(makeCoverPlaceholder())
         if (currentCover.isNotBlank() && File(currentCover).exists()) {
             loadThumb(currentCover, 220)?.let { binding.imgCurrentCover.setImageBitmap(it) }
@@ -293,6 +316,28 @@ class MainActivity : AppCompatActivity() {
         if (idx >= 0) list[idx] = entry else list.add(0, entry)
         if (list.size > 50) list.removeAt(list.size - 1)
         saveLibrary(list)
+    }
+
+    private fun showChaptersDialog() {
+        if (chapters.isEmpty()) { toast("Open a book first"); return }
+        val titles = chapters.mapIndexed { i, c ->
+            "${i + 1}. ${c.title.ifBlank { "(no title)" }}"
+        }.toTypedArray()
+        AlertDialog.Builder(this)
+            .setTitle("Chapters")
+            .setItems(titles) { _, which -> jumpToChapter(which) }
+            .setNegativeButton("Close", null)
+            .show()
+    }
+
+    private fun jumpToChapter(idx: Int) {
+        if (idx !in chapters.indices) return
+        stopTts()
+        chapterIndex = idx
+        buildBlocks()
+        renderBlock()
+        savePosition(); saveFpPosition(); updateLibraryEntry()
+        updateCurrentBookBar()
     }
 
     private fun showLibraryDialog() {
@@ -375,7 +420,15 @@ class MainActivity : AppCompatActivity() {
                         val bytes = contentResolver.openInputStream(uri)?.use { EpubTextExtractor.extractCover(it) }
                         if (bytes != null) saveCover(bytes) else ""
                     } catch (e: Exception) { "" }
-                    runOnUiThread { currentCover = cover }
+                    val bookTitle = try {
+                        contentResolver.openInputStream(uri)?.use { EpubTextExtractor.extractTitle(it) }
+                    } catch (e: Exception) { "" }.orEmpty()
+                    val fp = bookFingerprint(chaps)
+                    runOnUiThread {
+                        currentCover = cover
+                        if (bookTitle.isNotBlank()) currentBookTitle = bookTitle
+                        currentFingerprint = fp
+                    }
                 }
                 runOnUiThread {
                     if (chaps.isEmpty()) { showMessage("[No readable content in this EPUB]"); return@runOnUiThread }
@@ -385,6 +438,31 @@ class MainActivity : AppCompatActivity() {
                 runOnUiThread { showMessage("Error loading EPUB:\n${e.message}") }
             }
         }
+    }
+
+    private fun bookFingerprint(chapters: List<EpubTextExtractor.Chapter>): String {
+        val md = MessageDigest.getInstance("SHA-256")
+        for (ch in chapters) {
+            for (p in ch.paragraphs) md.update(p.toByteArray(Charsets.UTF_8))
+        }
+        return md.digest().joinToString("") { "%02x".format(it) }
+    }
+
+    private fun fpPrefs() = getSharedPreferences("book_identity", Context.MODE_PRIVATE)
+
+    private fun fpPosition(fp: String): BookPos? {
+        val root = try { JSONObject(fpPrefs().getString("positions", "{}")!!) } catch (e: Exception) { JSONObject() }
+        val o = root.optJSONObject(fp) ?: return null
+        return BookPos(o.optString("uri"), o.optInt("ch", 0), o.optInt("bl", 0), o.optString("title"))
+    }
+
+    private fun saveFpPosition() {
+        if (currentFingerprint.isBlank()) return
+        val label = currentBookTitle.ifBlank { currentTitle.ifBlank { fileLabel(currentUri) } }
+        val root = try { JSONObject(fpPrefs().getString("positions", "{}")!!) } catch (e: Exception) { JSONObject() }
+        root.put(currentFingerprint, JSONObject()
+            .put("uri", currentUri).put("ch", chapterIndex).put("bl", blockIndex).put("title", label))
+        fpPrefs().edit().putString("positions", root.toString()).apply()
     }
 
     private fun saveCover(bytes: ByteArray): String {
@@ -412,9 +490,21 @@ class MainActivity : AppCompatActivity() {
             blockIndex = jumpBlock?.coerceIn(0, blocks.size - 1) ?: 0
             renderBlock()
             savePosition()
+            saveFpPosition()
         } else {
-            val pos = loadPosition(currentUri)
-            if (pos != null) askResume(pos.first, pos.second) else renderBlock()
+            var pos = loadPosition(currentUri)
+            if (pos == null && currentFingerprint.isNotBlank()) {
+                val fp = fpPosition(currentFingerprint)
+                if (fp != null && fp.uri != currentUri) {
+                    pos = Pair(fp.chapter, fp.block)
+                    if (fp.title.isNotBlank()) currentBookTitle = fp.title
+                    toast("Same book opened from a different path — resume offered")
+                }
+            }
+            if (pos != null) askResume(pos.first, pos.second) else {
+                renderBlock()
+                saveFpPosition()
+            }
         }
         updateCurrentBookBar()
         updateLibraryEntry()
@@ -425,13 +515,15 @@ class MainActivity : AppCompatActivity() {
         val chapTitle = chapters[chapter].title
         AlertDialog.Builder(this)
             .setTitle("Resume reading?")
-            .setMessage("Chapter: $chapTitle\nBlock: $block")
+            .setMessage(if (chapter in chapters.indices) "Chapter: $chapTitle\nBlock: ${block + 1}" else "")
             .setPositiveButton("Resume") { _, _ ->
                 chapterIndex = chapter; buildBlocks()
                 blockIndex = block.coerceIn(0, blocks.size - 1)
-                renderBlock(); savePosition()
+                renderBlock(); savePosition(); saveFpPosition()
             }
-            .setNegativeButton("Start over") { _, _ -> renderBlock() }
+            .setNegativeButton("Start over") { _, _ ->
+                renderBlock(); saveFpPosition()
+            }
             .show()
     }
 
@@ -552,7 +644,7 @@ class MainActivity : AppCompatActivity() {
         else if (chapterIndex < chapters.size - 1) { chapterIndex++; buildBlocks() }
         else { toast("You've reached the end of the book"); return }
         if (ttsActive) { tts.stopAll(); speakBlock() } else renderBlock()
-        savePosition(); updateLibraryEntry()
+        savePosition(); saveFpPosition(); updateLibraryEntry()
     }
 
     private fun prevBlock() {
@@ -561,12 +653,13 @@ class MainActivity : AppCompatActivity() {
         else if (chapterIndex > 0) { chapterIndex--; buildBlocks(); blockIndex = blocks.size - 1 }
         else { toast("You're at the start of the book"); return }
         if (ttsActive) { tts.stopAll(); speakBlock() } else renderBlock()
-        savePosition(); updateLibraryEntry()
+        savePosition(); saveFpPosition(); updateLibraryEntry()
     }
 
     private fun updateLibraryEntry() {
         if (currentUri.isBlank() || chapters.isEmpty()) return
-        updateLibrary(currentTitle, currentUri, chapterIndex, blockIndex)
+        updateLibrary(if (currentBookTitle.isNotBlank()) currentBookTitle else currentTitle,
+            currentUri, chapterIndex, blockIndex)
     }
 
     // ========= TTS =========
@@ -844,9 +937,9 @@ class MainActivity : AppCompatActivity() {
         val buttons = listOf(
             binding.btnOpenEpub, binding.btnMenu, binding.btnPlay, binding.btnPause,
             binding.btnStop, binding.btnPrev, binding.btnNext, binding.btnBookmark,
-            binding.btnBookmarks, binding.btnTheme, binding.btnTextSmall,
-            binding.btnTextBig, binding.btnSpeed, binding.btnSelectVoice, binding.btnSettings,
-            binding.btnRecents
+            binding.btnBookmarks, binding.btnTheme, binding.btnChapters,
+            binding.btnTextSmall, binding.btnTextBig, binding.btnSpeed,
+            binding.btnSelectVoice, binding.btnSettings, binding.btnRecents
         )
         for (b in buttons) {
             if (!defaultButtonTint.containsKey(b.id)) {
