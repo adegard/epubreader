@@ -189,9 +189,28 @@ class MainActivity : AppCompatActivity() {
         applyHideBars()
         applyTextSize()
 
-        if (chapters.isEmpty()) {
-            showLibraryDialog()
+        if (!handleIncomingIntent(intent)) {
+            if (chapters.isEmpty()) {
+                showLibraryDialog()
+            }
         }
+    }
+
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        handleIncomingIntent(intent)
+    }
+
+    private fun handleIncomingIntent(intent: Intent?): Boolean {
+        val uri = intent?.data
+            ?: intent?.getParcelableExtra(Intent.EXTRA_STREAM)
+            ?: return false
+        try {
+            contentResolver.takePersistableUriPermission(uri, Intent.FLAG_GRANT_READ_URI_PERMISSION)
+        } catch (_: Exception) {}
+        loadEpub(uri)
+        return true
     }
 
     // ========= MENU =========
