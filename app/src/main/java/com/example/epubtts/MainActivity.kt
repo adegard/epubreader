@@ -1,6 +1,7 @@
 package com.example.epubtts
 
 import android.app.Activity
+import android.app.Dialog
 import android.content.Context
 import android.content.Intent
 import android.content.res.ColorStateList
@@ -178,6 +179,7 @@ class MainActivity : AppCompatActivity() {
         binding.btnTheme.setOnClickListener { toggleTheme() }
         binding.btnSettings.setOnClickListener { showSettingsDialog() }
         binding.btnRecents.setOnClickListener { showLibraryDialog() }
+        binding.imgCurrentCover.setOnClickListener { showCoverFullscreen() }
 
         gestureDetector = GestureDetector(this, object : GestureDetector.SimpleOnGestureListener() {
             private val SWIPE_THRESHOLD = 80
@@ -256,6 +258,32 @@ class MainActivity : AppCompatActivity() {
         if (currentCover.isNotBlank() && File(currentCover).exists()) {
             loadThumb(currentCover, 220)?.let { binding.imgCurrentCover.setImageBitmap(it) }
         }
+    }
+
+    private fun showCoverFullscreen() {
+        val path = currentCover
+        if (path.isBlank() || !File(path).exists()) { toast("No cover available"); return }
+        val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+        BitmapFactory.decodeFile(path, bounds)
+        var sample = 1
+        while (bounds.outWidth / (sample * 2) > 1600) sample *= 2
+        val bmp = try {
+            BitmapFactory.decodeFile(path, BitmapFactory.Options().apply { inSampleSize = sample })
+        } catch (e: Exception) { null }
+        if (bmp == null) { toast("Could not load cover"); return }
+        val img = ImageView(this).apply {
+            setImageBitmap(bmp)
+            scaleType = ImageView.ScaleType.FIT_CENTER
+            setBackgroundColor(android.graphics.Color.BLACK)
+            setPadding(16, 16, 16, 16)
+        }
+        val dialog = Dialog(this, android.R.style.Theme_Black_NoTitleBar_Fullscreen)
+        dialog.setContentView(img)
+        img.setOnClickListener { dialog.dismiss() }
+        dialog.setOnKeyListener { _, keyCode, _ ->
+            if (keyCode == android.view.KeyEvent.KEYCODE_BACK) { dialog.dismiss(); true } else false
+        }
+        dialog.show()
     }
 
     private fun makeCoverPlaceholder(): Drawable {
@@ -346,6 +374,7 @@ class MainActivity : AppCompatActivity() {
             showMessage("Tap \"Open EPUB\" to select a book.")
             return
         }
+        var dialog: AlertDialog? = null
         val adapter = object : ArrayAdapter<LibraryEntry>(this, 0, list) {
             override fun getView(pos: Int, convertView: View?, parent: ViewGroup): View {
                 val row = convertView ?: LayoutInflater.from(this@MainActivity)
@@ -354,16 +383,28 @@ class MainActivity : AppCompatActivity() {
                 val cover = row.findViewById<ImageView>(R.id.imgCover)
                 val title = row.findViewById<TextView>(R.id.txtTitle)
                 val sub = row.findViewById<TextView>(R.id.txtSub)
+                val del = row.findViewById<TextView>(R.id.btnDelete)
                 cover.setImageDrawable(makeCoverPlaceholder())
                 if (e.cover.isNotBlank() && File(e.cover).exists()) {
                     loadThumb(e.cover, 220)?.let { cover.setImageBitmap(it) }
                 }
                 title.text = if (e.title.isNotBlank()) e.title else fileLabel(e.uri)
                 sub.text = if (e.progress > 0) "${e.progress}% read" else ""
+                del.setOnClickListener {
+                    val index = list.indexOfFirst { it.uri == e.uri }
+                    if (index >= 0) list.removeAt(index)
+                    saveLibrary(list)
+                    if (list.isEmpty()) {
+                        dialog?.dismiss()
+                        showMessage("Tap \"Open EPUB\" to select a book.")
+                    } else {
+                        notifyDataSetChanged()
+                    }
+                }
                 return row
             }
         }
-        AlertDialog.Builder(this)
+        dialog = AlertDialog.Builder(this)
             .setTitle("Recent books")
             .setAdapter(adapter) { _, which ->
                 val entry = list[which]
@@ -1064,7 +1105,7 @@ class MainActivity : AppCompatActivity() {
 
     override fun onPause() {
         super.onPause()
-        savePosition(); updateLibraryEntry()
+        savePosition(); saveFpPosition(); updateLibraryEntry()
     }
 
     override fun onDestroy() { releaseWakeLock(); tts.shutdown(); super.onDestroy() }

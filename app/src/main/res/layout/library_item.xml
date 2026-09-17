@@ -37,4 +37,15 @@
             android:layout_height="wrap_content"
             android:textSize="12sp"/>
     </LinearLayout>
+
+    <TextView
+        android:id="@+id/btnDelete"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:padding="12dp"
+        android:gravity="center"
+        android:text="&#10005;"
+        android:textSize="18sp"
+        android:textStyle="bold"
+        android:contentDescription="Remove"/>
 </LinearLayout>
