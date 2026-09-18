@@ -30,7 +30,10 @@ import android.view.View
 import android.view.ViewGroup
 import android.widget.ArrayAdapter
 import android.widget.EditText
+import android.widget.FrameLayout
 import android.widget.ImageView
+import android.widget.LinearLayout
+import android.widget.ProgressBar
 import android.widget.TextView
 import android.widget.Toast
 import androidx.activity.result.contract.ActivityResultContracts
@@ -111,6 +114,8 @@ class MainActivity : AppCompatActivity() {
     private var currentChunks: List<String> = emptyList()
 
     private lateinit var gestureDetector: GestureDetector
+    private var loadingDialog: Dialog? = null
+    private var loadingCoverView: ImageView? = null
 
     private val openDocumentLauncher =
         registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
@@ -451,34 +456,96 @@ class MainActivity : AppCompatActivity() {
             contentResolver.takePersistableUriPermission(uri, Intent.FLAG_GRANT_READ_URI_PERMISSION)
         } catch (_: Exception) {}
         currentUri = uri.toString()
-        showMessage("Loading…")
+        currentCover = ""
+        showLoadingOverlay()
         thread {
             try {
+                val cached = File(filesDir, "covers/${uriKey(currentUri)}.img")
+                val cover = if (cached.exists()) cached.absolutePath else try {
+                    val bytes = contentResolver.openInputStream(uri)?.use { EpubTextExtractor.extractCover(it) }
+                    if (bytes != null) saveCover(bytes) else ""
+                } catch (e: Exception) { "" }
+                runOnUiThread { currentCover = cover; updateLoadingOverlayCover() }
+
                 val input = contentResolver.openInputStream(uri)
                 val chaps = input?.use { EpubTextExtractor.extractChapters(it) } ?: emptyList()
-                if (chaps.isNotEmpty()) {
-                    val cover = try {
-                        val bytes = contentResolver.openInputStream(uri)?.use { EpubTextExtractor.extractCover(it) }
-                        if (bytes != null) saveCover(bytes) else ""
-                    } catch (e: Exception) { "" }
-                    val bookTitle = try {
-                        contentResolver.openInputStream(uri)?.use { EpubTextExtractor.extractTitle(it) }
-                    } catch (e: Exception) { "" }.orEmpty()
-                    val fp = bookFingerprint(chaps)
-                    runOnUiThread {
-                        currentCover = cover
-                        if (bookTitle.isNotBlank()) currentBookTitle = bookTitle
-                        currentFingerprint = fp
-                    }
-                }
+                val bookTitle = if (chaps.isNotEmpty()) try {
+                    contentResolver.openInputStream(uri)?.use { EpubTextExtractor.extractTitle(it) }
+                } catch (e: Exception) { "" }.orEmpty() else ""
+                val fp = if (chaps.isNotEmpty()) bookFingerprint(chaps) else ""
                 runOnUiThread {
+                    if (bookTitle.isNotBlank()) currentBookTitle = bookTitle
+                    currentFingerprint = fp
+                    hideLoadingOverlay()
                     if (chaps.isEmpty()) { showMessage("[No readable content in this EPUB]"); return@runOnUiThread }
                     presentChapters(chaps, jumpChapter, jumpBlock)
                 }
             } catch (e: Exception) {
-                runOnUiThread { showMessage("Error loading EPUB:\n${e.message}") }
+                runOnUiThread { hideLoadingOverlay(); showMessage("Error loading EPUB:\n${e.message}") }
             }
         }
+    }
+
+    private fun showLoadingOverlay() {
+        if (isFinishing || (android.os.Build.VERSION.SDK_INT >= 17 && isDestroyed)) return
+        val density = resources.displayMetrics.density
+        val container = FrameLayout(this).apply { setBackgroundColor(android.graphics.Color.BLACK) }
+        val img = ImageView(this).apply {
+            scaleType = ImageView.ScaleType.FIT_CENTER
+            val pad = (20 * density).toInt()
+            setPadding(pad, pad, pad, pad)
+        }
+        container.addView(img, FrameLayout.LayoutParams(
+            ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
+        val cached = File(filesDir, "covers/${uriKey(currentUri)}.img")
+        if (cached.exists()) {
+            loadThumb(cached.absolutePath, 1600)?.let { img.setImageBitmap(it) }
+                ?: img.setImageDrawable(makeCoverPlaceholder())
+        } else {
+            img.setImageDrawable(makeCoverPlaceholder())
+        }
+        loadingCoverView = img
+
+        val spinner = ProgressBar(this).apply {
+            indeterminateTintList = ColorStateList.valueOf(android.graphics.Color.WHITE)
+        }
+        val label = TextView(this).apply {
+            text = "Loading…"
+            setTextColor(android.graphics.Color.WHITE)
+            textSize = 18f
+        }
+        val bottom = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            gravity = android.view.Gravity.CENTER_HORIZONTAL
+            setPadding(0, 0, 0, (36 * density).toInt())
+        }
+        bottom.addView(spinner, LinearLayout.LayoutParams((44 * density).toInt(), (44 * density).toInt()))
+        bottom.addView(label, LinearLayout.LayoutParams(
+            ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
+            topMargin = (10 * density).toInt()
+        })
+        container.addView(bottom, FrameLayout.LayoutParams(
+            ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT,
+            android.view.Gravity.BOTTOM or android.view.Gravity.CENTER_HORIZONTAL))
+
+        val dialog = Dialog(this, android.R.style.Theme_Black_NoTitleBar_Fullscreen)
+        dialog.setContentView(container)
+        dialog.setCancelable(true)
+        dialog.setCanceledOnTouchOutside(false)
+        dialog.show()
+        loadingDialog = dialog
+    }
+
+    private fun updateLoadingOverlayCover() {
+        val img = loadingCoverView ?: return
+        val cached = File(filesDir, "covers/${uriKey(currentUri)}.img")
+        if (cached.exists()) loadThumb(cached.absolutePath, 1600)?.let { img.setImageBitmap(it) }
+    }
+
+    private fun hideLoadingOverlay() {
+        try { loadingDialog?.dismiss() } catch (_: Exception) {}
+        loadingDialog = null
+        loadingCoverView = null
     }
 
     private fun bookFingerprint(chapters: List<EpubTextExtractor.Chapter>): String {
@@ -1108,7 +1175,7 @@ class MainActivity : AppCompatActivity() {
         savePosition(); saveFpPosition(); updateLibraryEntry()
     }
 
-    override fun onDestroy() { releaseWakeLock(); tts.shutdown(); super.onDestroy() }
+    override fun onDestroy() { hideLoadingOverlay(); releaseWakeLock(); tts.shutdown(); super.onDestroy() }
 
     companion object {
         private const val TTS_HIGHLIGHT_COLOR = 0x99FFC107.toInt()
